@@ -1,0 +1,401 @@
+---
+title: "R_Analisis_Sentimen_UAS_RnD"
+author: "Kaleb Filbert Istel"
+date: "2026-05-13"
+output: html_document
+---
+
+# Load Library
+
+```{r setup, message=FALSE, warning=FALSE}
+library(knitr)
+library(MASS)
+library(DataExplorer)
+library(tree)
+library(ggplot2)
+library(corrplot)
+library(dplyr)
+library(stringr)
+library(tidyr)
+library(gbm)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+```
+
+# Import Dataset
+
+```{r}
+data_id <- "1KkD4lo9pWVudJyTozgUyo6aRzXFYd985"
+
+drive_url <- paste0(
+  "https://drive.google.com/uc?export=download&id=",
+  data_id
+)
+
+df <- read.csv(drive_url, stringsAsFactors = FALSE)
+
+head(df)
+str(df)
+```
+
+# Menghapus Kolom yang Tidak Digunakan
+
+```{r}
+df$Timestamp <- NULL
+df$Nama <- NULL
+df$NIM <- NULL
+```
+
+# Rename Nama Variabel
+
+```{r}
+original_names_map <- c(
+  "Visualisasi.Data.dan.Informasi" = "VDI",
+  "Metode.Penelitian" = "MP",
+  "Analisis.Deret.Waktu" = "ADW",
+  "Analisis.Big.Data" = "ABD",
+  "Pemodelan.Stokastik" = "PS",
+  "Pembelajaran.Mesin" = "PM",
+  "Kriptografi" = "KRI",
+  "Analitik.Bisnis.Lanjut" = "ABL",
+  "Bionformatika" = "BIO",
+  "Pemrosesan.Bahasa.Alami" = "PBA",
+  "Statistika.Sains.Data" = "SSD",
+  "Metode.Numerik" = "MN",
+  "Struktur.Data" = "SD",
+  "Pemrograman.Berorientasi.Fungsi" = "PBF",
+  "Basis.Data" = "BD",
+  "Algoritma.Strategi" = "AS",
+  "Kalkulus" = "KAL",
+  "Teori.Peluang" = "TP",
+  "Algoritma.Pemrograman" = "AP",
+  "Aljabar.Linier.Elementer" = "ALE"
+)
+
+existing_cols <- intersect(names(original_names_map), names(df))
+
+names(df)[match(existing_cols, names(df))] <-
+  original_names_map[existing_cols]
+
+names(df)
+```
+
+# Exploratory Data Analysis (EDA)
+
+```{r}
+introduce(df)
+```
+
+```{r}
+plot_intro(df)
+```
+
+```{r}
+plot_missing(df)
+```
+
+# Missing Value
+
+```{r}
+matkul_cols <- c(
+  "VDI","MP","ADW","ABD",
+  "PS","PM","KRI","ABL",
+  "BIO","PBA","SSD","MN",
+  "SD","PBF","BD","AS",
+  "KAL","TP","AP","ALE"
+)
+
+matkul_cols <- intersect(matkul_cols, names(df))
+
+for(col in matkul_cols){
+
+  flag_name <- paste0(col, "_miss")
+
+  df[[flag_name]] <- ifelse(is.na(df[[col]]),1,0)
+
+  df[[col]][is.na(df[[col]])] <- 0
+}
+```
+
+# Cek Missing Value
+
+```{r}
+colSums(is.na(df))
+```
+
+```{r}
+plot_missing(df)
+```
+
+```{r}
+head(df)
+```
+
+# Konversi Tipe Data
+
+```{r}
+df$labeling <- as.factor(df$labeling)
+
+if("Tipe.Belajar" %in% names(df)){
+  df$Tipe.Belajar <- as.factor(df$Tipe.Belajar)
+}
+
+if("Angkatan" %in% names(df)){
+  df$Angkatan <- as.factor(df$Angkatan)
+}
+```
+
+# PREPROCESSING KOLOM ALASAN KESULITAN
+
+```{r}
+col_alasan <- "Apa.alasan.utama.kesulitan.Anda."
+
+head(df[[col_alasan]])
+```
+
+# Pisahkan jawaban yang dipilih lebih dari satu
+
+```{r}
+library(tidyr)
+library(dplyr)
+library(stringr)
+
+col_alasan <- "Apa.alasan.utama.kesulitan.Anda."
+
+df_alasan <- df[, c("labeling", col_alasan)]
+
+df_alasan_split <- df_alasan %>%
+  filter(!is.na(df_alasan[[col_alasan]])) %>%
+  separate_rows(!!sym(col_alasan), sep = ",") %>%
+  mutate(
+    !!sym(col_alasan) := str_trim(!!sym(col_alasan))
+  )
+
+head(df_alasan_split)
+
+# Daftar pilihan alasan
+
+```
+
+
+```{r}
+opsi_alasan <- c(
+  "Materi terlalu rumit",
+  "Kurang latihan/praktek langsung",
+  "Penjelasan dosen sulit dipahami",
+  "Terlalu banyak rumus",
+  "Terlalu banyak hafalan",
+  "Tugas terlalu banyak sehingga tidak ada waktu untuk belajar"
+)
+```
+
+# Membuat Variabel Dummy
+
+```{r}
+for(opsi in opsi_alasan){
+
+  nama_kolom <- paste0(
+    "alasan_",
+    make.names(opsi)
+  )
+
+  df[[nama_kolom]] <-
+    ifelse(
+      grepl(
+        opsi,
+        df[[col_alasan]],
+        fixed = TRUE
+      ),
+      1,
+      0
+    )
+
+}
+```
+
+# Cek Hasil Dummy
+
+```{r}
+grep("^alasan_", names(df), value = TRUE)
+
+head(
+  df[
+    ,
+    grep("^alasan_", names(df), value = TRUE)
+  ]
+)
+```
+
+# Hapus Kolom Teks Asli
+
+```{r}
+df[[col_alasan]] <- NULL
+```
+
+# Pastikan Target Faktor
+
+```{r}
+df$labeling <- as.factor(df$labeling)
+```
+
+# Menentukan Variabel Prediktor
+
+```{r}
+predictor_cols <- setdiff(
+  names(df),
+  "labeling"
+)
+```
+
+# Train Test Split
+
+```{r}
+set.seed(123)
+
+train_index <- sample(
+  seq_len(nrow(df)),
+  size = 0.8*nrow(df)
+)
+
+train <- df[train_index,]
+
+test <- df[-train_index,]
+```
+
+# DECISION TREE
+
+```{r}
+tree_model <- rpart(
+  labeling ~ .,
+  data = train,
+  method = "class"
+)
+```
+
+# Visualisasi Tree
+
+```{r}
+rpart.plot(
+  tree_model,
+  main = "Decision Tree Sentimen",
+  box.palette = "RdBu"
+)
+```
+
+# Prediksi
+
+```{r}
+tree_pred <- predict(
+  tree_model,
+  newdata = test,
+  type = "class"
+)
+```
+
+# Evaluasi
+
+```{r}
+conf_tree <- table(
+  Predicted = tree_pred,
+  Actual = test$labeling
+)
+
+conf_tree
+```
+
+```{r}
+accuracy_tree <-
+  sum(diag(conf_tree)) /
+  sum(conf_tree)
+
+cat(
+  "Accuracy Decision Tree :",
+  round(accuracy_tree,4)
+)
+```
+
+# RANDOM FOREST
+
+```{r}
+set.seed(123)
+
+rf_model <- randomForest(
+  labeling ~ .,
+  data = train,
+  ntree = 500,
+  importance = TRUE
+)
+
+rf_model
+```
+
+# Prediksi
+
+```{r}
+rf_pred <- predict(
+  rf_model,
+  newdata = test
+)
+```
+
+# Confusion Matrix
+
+```{r}
+conf_rf <- table(
+  Predicted = rf_pred,
+  Actual = test$labeling
+)
+
+conf_rf
+```
+
+# Accuracy
+
+```{r}
+accuracy_rf <-
+  sum(diag(conf_rf)) /
+  sum(conf_rf)
+
+cat(
+  "Accuracy Random Forest :",
+  round(accuracy_rf,4)
+)
+```
+
+# Precision, Recall, dan F1-Score
+
+```{r}
+precision <- diag(conf_rf) / rowSums(conf_rf)
+
+recall <- diag(conf_rf) / colSums(conf_rf)
+
+f1 <- 2 * precision * recall /
+      (precision + recall)
+
+metric <- data.frame(
+  Class = names(precision),
+  Precision = round(precision,4),
+  Recall = round(recall,4),
+  F1_Score = round(f1,4)
+)
+
+metric
+```
+
+# Variable Importance
+
+```{r}
+importance_rf <- importance(rf_model)
+
+importance_rf
+```
+
+# Plot Variable Importance
+
+```{r}
+varImpPlot(
+  rf_model,
+  main = "Variable Importance Random Forest"
+)
+```
