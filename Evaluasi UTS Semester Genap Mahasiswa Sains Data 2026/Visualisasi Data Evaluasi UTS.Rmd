@@ -1,0 +1,302 @@
+---
+title: "VISUAL DATA UTS"
+author: "Hafidz Wahdiansyah, Faiza Try Anjani, Melva Shaprina Febrianti"
+date: "2026-05-17"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##Data
+
+```{r}
+#Data
+#Link direct download
+url <- "https://drive.google.com/uc?export=download&id=1KkD4lo9pWVudJyTozgUyo6aRzXFYd985"
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(scales)
+library(forcats)
+
+# Baca data
+data <- read.csv(url, check.names = FALSE)
+names(data) <- trimws(names(data))
+
+# Cek data
+head(data)
+summary(data$Angkatan)
+```
+
+```{r}
+#Tipe Belajar Mahasiswa
+df_tipe <- data %>%
+  count(`Tipe Belajar`) %>%
+  mutate(Persen = n / sum(n))
+
+ggplot(df_tipe, aes(x = reorder(`Tipe Belajar`, n), y = n, fill = `Tipe Belajar`)) +
+  geom_col(show.legend = FALSE, alpha = 0.9) +
+  geom_text(aes(label = percent(Persen, accuracy = 0.1)),
+            hjust = -0.1, size = 4) +
+  coord_flip() +
+  labs(
+    title = "Distribusi Tipe Belajar Mahasiswa",
+    subtitle = "Ditampilkan dengan persentase",
+    x = "Tipe Belajar",
+    y = "Jumlah Responden"
+  ) +
+  theme_minimal(base_size = 12) +
+  expand_limits(y = max(df_tipe$n) * 1.2)
+```
+
+**Interpretasi**
+
+Pilihan tipe belajar mahasiswa berbeda-beda, tetapi ada satu tipe yang lebih banyak dipilih dibanding yang lain. Hal ini menunjukkan bahwa sebagian besar mahasiswa memiliki cara belajar yang cenderung sama dalam memahami materi. Informasi ini penting karena bisa digunakan untuk menentukan metode belajar atau bentuk bantuan akademik yang lebih sesuai dengan kebutuhan mahasiswa.
+
+```{r}
+#Kesulitan UTS 
+
+df_long <- data %>%
+  pivot_longer(
+    cols = c(
+      "Visualisasi Data dan Informasi", "Metode Penelitian", "Analisis Deret Waktu",
+      "Analisis Big Data", "Pemodelan Stokastik", "Pembelajaran Mesin",
+      "Kriptografi", "Analitik Bisnis Lanjut", "Bionformatika", "Pemrosesan Bahasa Alami",
+      "Statistika Sains Data", "Metode Numerik", "Struktur Data", 
+      "Pemrograman Berorientasi Fungsi", "Basis Data", "Algoritma Strategi",
+      "Kalkulus", "Teori Peluang", "Algoritma Pemrograman", "Aljabar Linier Elementer"
+    ),
+    names_to = "Matkul",
+    values_to = "Skala"
+  ) %>%
+  filter(!is.na(Skala))
+
+# rata-rata per angkatan dan matkul
+df_heat <- df_long %>%
+  group_by(Angkatan, Matkul) %>%
+  summarise(Rata = mean(Skala, na.rm = TRUE), .groups = "drop")
+
+# urutkan matkul dari paling sulit ke mudah
+urut_matkul <- df_heat %>%
+  group_by(Matkul) %>%
+  summarise(Rata_Total = mean(Rata), .groups = "drop") %>%
+  arrange(desc(Rata_Total)) %>%
+  pull(Matkul)
+
+df_heat$Matkul <- factor(df_heat$Matkul, levels = urut_matkul)
+
+# heatmap (matkul di sumbu Y)
+ggplot(df_heat, aes(x = factor(Angkatan), y = Matkul, fill = Rata)) +
+  geom_tile(color = "white", linewidth = 0.8) +
+  geom_text(aes(label = round(Rata, 2)),
+            size = 3.3, fontface = "bold") +
+  scale_fill_gradientn(
+    colors = c("#1a9850", "#91cf60", "#ffffbf", "#fc8d59", "#d73027"),
+    limits = c(1, 5)
+  ) +
+  labs(
+    title = "Heatmap Rata-rata Kesulitan UTS per Angkatan",
+    subtitle = "Mata kuliah diurutkan dari paling sulit (atas) ke paling mudah (bawah)",
+    x = "Angkatan",
+    y = "Mata Kuliah",
+    fill = "Rata-rata\nSkala"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 15),
+    axis.text.y = element_text(size = 10),
+    axis.text.x = element_text(face = "bold"),
+    panel.grid = element_blank(),
+    legend.position = "right"
+  )
+```
+
+**Interpretasi**
+
+Heatmap ini memperlihatkan bahwa tingkat kesulitan tiap mata kuliah berbeda-beda pada setiap angkatan. Mata kuliah yang memiliki rata-rata nilai kesulitan paling tinggi dapat dianggap sebagai mata kuliah yang paling menantang bagi mahasiswa. Perbedaan tersebut bisa terjadi karena beberapa faktor, seperti perubahan kurikulum, cara dosen mengajar, atau tingkat kesiapan mahasiswa dalam mengikuti perkuliahan.
+
+```{r fig.width=12, fig.height=7}
+#Top 5 Mata Kuliah Tersulit per Angkatan
+df_top5 <- df_long %>%
+  group_by(Angkatan, Matkul) %>%
+  summarise(Rata = mean(Skala, na.rm = TRUE), .groups = "drop") %>%
+  group_by(Angkatan) %>%
+  slice_max(order_by = Rata, n = 5, with_ties = FALSE) %>%
+  arrange(Angkatan, desc(Rata)) %>%
+  mutate(Rank = row_number()) %>%
+  ungroup()
+
+ggplot(df_top5, aes(x = Rata, y = fct_reorder(Matkul, Rata), fill = factor(Rank))) +
+  geom_col(width = 0.7, alpha = 0.9, color = "black") +
+  
+  # label nilai rata-rata (kanan)
+  geom_text(aes(label = round(Rata, 2)),
+            hjust = -0.2, size = 4, fontface = "bold") +
+  
+  # label ranking (#1 dst) di dalam bar
+  geom_text(aes(label = paste0("#", Rank)),
+            hjust = 1.2, color = "white", size = 4, fontface = "bold") +
+  
+  facet_wrap(~Angkatan, scales = "free_y") +
+  
+  scale_x_continuous(limits = c(0, 5), breaks = seq(0, 5, 1)) +
+  scale_fill_brewer(palette = "Reds", direction = 1) +
+  
+  labs(
+    title = "Top 5 Mata Kuliah Tersulit per Angkatan",
+    subtitle = "Ranking berdasarkan rata-rata skala kesulitan UTS",
+    x = "Rata-rata Skala Kesulitan (1-5)",
+    y = "Mata Kuliah"
+  ) +
+  
+  coord_cartesian(xlim = c(0, 5.6), clip = "off") +  # ini kunci biar teks kanan gak kepotong
+  
+  theme_bw(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 15),
+    strip.text = element_text(face = "bold", size = 12),
+    legend.position = "none",
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    
+    # margin plot supaya aman
+    plot.margin = margin(10, 60, 10, 10)
+  )
+  
+```
+
+**Interpretasi**
+
+Grafik ini menunjukkan lima mata kuliah yang paling sulit menurut masing-masing angkatan. Beberapa mata kuliah muncul secara konsisten, menandakan bahwa tingkat kesulitannya dirasakan tinggi oleh berbagai kelompok mahasiswa.
+
+```{r}
+#Efektivitas Skema Bantuan UTS
+
+df_skema <- data %>%
+  filter(!is.na(`Apakah skema yang dilakukan membantu persiapan uts Anda?`)) %>%
+  count(Skala = factor(`Apakah skema yang dilakukan membantu persiapan uts Anda?`,
+                       levels = c(1,2,3,4,5))) %>%
+  mutate(Persen = n / sum(n))
+
+ggplot(df_skema, aes(x = "", y = Persen, fill = Skala)) +
+  geom_col(color = "white") +
+  coord_polar(theta = "y") +
+  geom_text(aes(label = percent(Persen, accuracy = 0.1)),
+            position = position_stack(vjust = 0.5),
+            size = 4) +
+  labs(
+    title = "Proporsi Efektivitas Skema Bantuan",
+    subtitle = "1 = Sangat Membantu, 5 = Sangat Tidak Membantu",
+    fill = "Skala"
+  ) +
+  theme_void(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5),
+    legend.position = "bottom"
+  )
+```
+
+**Interpretasi**
+
+Sebagian besar responden menilai bahwa skema bantuan yang diberikan cukup membantu dalam mempersiapkan UTS. Namun, masih ada beberapa mahasiswa yang merasa bantuan tersebut belum terlalu efektif, sehingga program pendampingan masih perlu diperbaiki agar lebih sesuai dengan kebutuhan mahasiswa.
+
+```{r}
+#Efektivitas Skema vs Rata-rata Tingkat Kesulitan
+
+matkul_cols <- c(
+  "Visualisasi Data dan Informasi", "Metode Penelitian", "Analisis Deret Waktu",
+  "Analisis Big Data", "Pemodelan Stokastik", "Pembelajaran Mesin",
+  "Kriptografi", "Analitik Bisnis Lanjut", "Bionformatika", "Pemrosesan Bahasa Alami",
+  "Statistika Sains Data", "Metode Numerik", "Struktur Data", 
+  "Pemrograman Berorientasi Fungsi", "Basis Data", "Algoritma Strategi",
+  "Kalkulus", "Teori Peluang", "Algoritma Pemrograman", "Aljabar Linier Elementer"
+)
+
+# rata-rata kesulitan per responden
+data$Rata_Kesulitan <- rowMeans(data[, matkul_cols], na.rm = TRUE)
+
+# buat kategori kesulitan (dibulatkan jadi 1-5)
+data$Kategori_Kesulitan <- factor(round(data$Rata_Kesulitan), levels = c(1,2,3,4,5))
+
+# skema urut 1-5
+data$Skema <- factor(
+  data$`Apakah skema yang dilakukan membantu persiapan uts Anda?`,
+  levels = c(1,2,3,4,5)
+)
+
+# hitung persentase distribusi kesulitan per skema
+df_dist <- data %>%
+  filter(!is.na(Skema)) %>%
+  group_by(Skema, Kategori_Kesulitan) %>%
+  summarise(Jumlah = n(), .groups = "drop") %>%
+  group_by(Skema) %>%
+  mutate(Persen = Jumlah / sum(Jumlah) * 100)
+
+# plot 100% stacked bar
+ggplot(df_dist, aes(x = Skema, y = Persen, fill = Kategori_Kesulitan)) +
+  geom_col(color = "black", width = 0.7) +
+  scale_fill_brewer(palette = "YlOrRd", direction = 1) +
+  labs(
+    title = "Distribusi Kesulitan UTS berdasarkan Efektivitas Skema",
+    subtitle = "Persentase kesulitan UTS untuk tiap skala skema bantuan",
+    x = "Skala Skema (1 = Sangat Membantu, 5 = Sangat Tidak Membantu)",
+    y = "Persentase (%)",
+    fill = "Kategori Kesulitan"
+  ) +
+  theme_bw(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    legend.position = "bottom"
+  )
+  
+```
+
+**Interpretasi**
+
+Mahasiswa yang merasa skema bantuan lebih membantu umumnya menilai tingkat kesulitan UTS lebih rendah. Hal ini menunjukkan bahwa bantuan akademik dapat berpengaruh terhadap kesiapan mahasiswa dalam menghadapi UTS, meskipun pengaruhnya tidak sama pada semua responden.
+
+```{r}
+#Rekomendasi Bantuan Terbanyak
+
+data_bantuan <- data %>%
+  filter(!is.na(`Apa hal yang dapat kami lakukan untuk membantu Anda?`)) %>%
+  separate_rows(`Apa hal yang dapat kami lakukan untuk membantu Anda?`, sep = ",\\s*") %>%
+  mutate(`Apa hal yang dapat kami lakukan untuk membantu Anda?` =
+           str_trim(`Apa hal yang dapat kami lakukan untuk membantu Anda?`))
+
+df_bantuan <- data_bantuan %>%
+  count(`Apa hal yang dapat kami lakukan untuk membantu Anda?`) %>%
+  mutate(`Apa hal yang dapat kami lakukan untuk membantu Anda?` =
+           fct_reorder(`Apa hal yang dapat kami lakukan untuk membantu Anda?`, n))
+
+ggplot(df_bantuan, aes(x = n, y = `Apa hal yang dapat kami lakukan untuk membantu Anda?`, fill = n)) +
+  geom_col(alpha = 0.9, color = "black") +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.05))) +
+  labs(
+    title = "Rekomendasi Bantuan Persiapan UTS Terbanyak",
+    subtitle = "Diurutkan berdasarkan jumlah permintaan mahasiswa",
+    x = "Jumlah Responden",
+    y = "Bentuk Bantuan",
+    fill = "Frekuensi"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    axis.text.y = element_text(size = 10)
+  )
+```
+
+**Interpretasi**
+
+Bentuk bantuan yang paling banyak dipilih menunjukkan kebutuhan utama mahasiswa dalam menghadapi UTS. Hasil ini dapat dijadikan dasar untuk merancang kegiatan pendampingan akademik yang lebih sesuai.
+
+**Kesimpulan**
+
+Berdasarkan hasil visualisasi, tingkat kesulitan UTS mahasiswa dipengaruhi oleh mata kuliah yang diambil, angkatan, serta efektivitas bantuan yang diberikan. Beberapa mata kuliah secara konsisten dianggap sulit, sementara skema bantuan dinilai cukup membantu oleh mayoritas responden. Oleh karena itu, bantuan akademik yang lebih terarah pada mata kuliah sulit dapat meningkatkan kesiapan mahasiswa.
