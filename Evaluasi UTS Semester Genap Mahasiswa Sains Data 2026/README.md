@@ -1,1 +1,1 @@
-
+Survei yang dilakukan melibatkan mahasiswa dari program studi Sains Data ITERA, yang bertujuan untuk melakukan evaluasi terhadap persiapan UTS yang telah dilaksanakan guna memaksimalkan persiapan untuk ujian-ujian selanjutnya
